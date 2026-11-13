@@ -23,6 +23,9 @@ const FLOOR_LEVELS: Record<FloorId, [number, number]> = {
 // full-height chunk that shows whenever 3F or 4F does
 const R0_CHUNK = "r0" as const;
 const R0_FLOORS: readonly FloorId[] = ["3f", "4f"];
+// 4F is open to 3F around R0 and wherever its scan has gaps, so 3F stays drawn beneath it: looking down through
+// 4F lands on 3F rather than on the page background
+const FLOOR_BENEATH: Partial<Record<FloorId, FloorId>> = { "4f": "3f" };
 // R0's floor: a flat stage at the front, then a rake rising towards the back. Must match the crop,
 // which keeps everything from R0_CROP_DEPTH under this floor upwards.
 const R0_STAGE_Y = -0.35;
@@ -31,10 +34,7 @@ const R0_RAKE = 0.205;
 const R0_CROP_DEPTH = 0.04;
 // Behind R0's top row the scan has no floor (a control booth overhangs it) and the floor map shows the booth's roof,
 // so the rake sheet ends there and the 3F sheet below turns plain dark: a drop, not a raised floor or a pale strip.
-// From 4F the drop is also seen past R0's back edge, where 3F is not drawn, so the 4F slice carries a dark sheet
-// running on this far behind R0 at the 3F floor's height (3F has no floor out there, so only 4F may show it).
 const R0_TOP_ROW_Z = -2.3;
-const R0_BACK_DROP_REACH = 1.2;
 const R0_BACK_FLOOR_COLOR = "#504638";
 const r0FloorY = (z: number) => R0_STAGE_Y + Math.max(0, R0_STAGE_EDGE - z) * R0_RAKE;
 type ChunkId = FloorId | typeof R0_CHUNK;
@@ -280,17 +280,6 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 			const { y, outlines } = floorOutlines[id];
 			// Outlines follow the scanned floor, so they already leave R0 (open from 3F up through 4F) out
 			pivot.add(createSlab(outlines, y, floorMaterials.get(id)!));
-			if (id === "4f") {
-				const xs = r0Hole.map(([x]) => x);
-				const z0 = Math.min(...r0Hole.map(([, z]) => z)) - R0_BACK_DROP_REACH;
-				const drop = [
-					[Math.min(...xs), z0],
-					[Math.max(...xs), z0],
-					[Math.max(...xs), R0_TOP_ROW_Z],
-					[Math.min(...xs), R0_TOP_ROW_Z]
-				];
-				pivot.add(createSlab([{ outer: drop, holes: [] }], r0FloorSheetY - 0.01, r0BackMaterial));
-			}
 		} else {
 			// R0's own floor, filling the hole the 3F outline leaves: a flat 3F sheet catching every view under the rake
 			// (plain dark behind the top row), and the rake sheet along the seating itself
@@ -602,7 +591,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		currentFloor = floor;
 		setHover(null);
 		const duration = instant ? 0 : 0.45;
-		FLOOR_IDS.forEach(id => setChunkVisible(id, id === floor, duration));
+		FLOOR_IDS.forEach(id => setChunkVisible(id, id === floor || id === FLOOR_BENEATH[floor], duration));
 		setChunkVisible(R0_CHUNK, R0_FLOORS.includes(floor), duration);
 		const [y0, y1] = FLOOR_LEVELS[floor];
 		const targetY = ((y0 + y1) / 2 - MODEL_CENTER.y) * MODEL_SCALE;
