@@ -29,8 +29,12 @@ const R0_STAGE_Y = -0.35;
 const R0_STAGE_EDGE = 0.9;
 const R0_RAKE = 0.205;
 const R0_CROP_DEPTH = 0.04;
-// Behind R0's top row the scan has no floor (a control booth overhangs it) and the floor map shows the booth's roof
+// Behind R0's top row the scan has no floor (a control booth overhangs it) and the floor map shows the booth's roof,
+// so the rake sheet ends there and the 3F sheet below turns plain dark: a drop, not a raised floor or a pale strip.
+// From 4F the drop is seen past R0's back edge, where 3F is not drawn, so the dark sheet runs on this far under the
+// 4F floor, just below the 3F slab that hides it from 3F.
 const R0_TOP_ROW_Z = -2.3;
+const R0_BACK_DROP_REACH = 1.2;
 const R0_BACK_FLOOR_COLOR = "#504638";
 const r0FloorY = (z: number) => R0_STAGE_Y + Math.max(0, R0_STAGE_EDGE - z) * R0_RAKE;
 type ChunkId = FloorId | typeof R0_CHUNK;
@@ -165,24 +169,21 @@ const clipAtZ = (points: number[][], edge: number, keep: (z: number) => boolean)
 /**
  * R0's rake sheet: `outline` (scan x, z) laid on the stage and rake just under the R0 chunk's crop, so gaps in the
  * scanned seating show floor at the seats' own depth instead of the 3F sheet a whole storey below.
- * It levels off at `top` (the 4F floor) for the top rows, and behind them is a plain carpet colour, as the floor map
- * there shows the booth roof. Cut at every bend, each band is planar, so its outline vertices place it exactly.
+ * It levels off at `top` (the 4F floor) for the top rows and ends behind the top row.
+ * Cut at every bend, each band is planar, so its outline vertices place it exactly.
  */
 const createRakeSlab = (outline: number[][], top: number, material: THREE.Material) => {
 	const height = (z: number) => Math.min(r0FloorY(z) - R0_CROP_DEPTH, top);
 	// Where the rake reaches `top`
 	const crest = R0_STAGE_EDGE - (top + R0_CROP_DEPTH - R0_STAGE_Y) / R0_RAKE;
-	const backMaterial = new THREE.MeshBasicMaterial({ color: R0_BACK_FLOOR_COLOR, side: THREE.DoubleSide });
-	const bands: [number, number, THREE.Material][] = [
-		[R0_STAGE_EDGE, Infinity, material],
-		[crest, R0_STAGE_EDGE, material],
-		[R0_TOP_ROW_Z, crest, material],
-		[-Infinity, R0_TOP_ROW_Z, backMaterial]
+	const bands = [
+		[R0_STAGE_EDGE, Infinity],
+		[crest, R0_STAGE_EDGE],
+		[R0_TOP_ROW_Z, crest]
 	];
 	const group = new THREE.Group();
-	for (const [z0, z1, bandMaterial] of bands) {
-		let part = outline;
-		if (z0 > -Infinity) part = clipAtZ(part, z0, z => z >= z0);
+	for (const [z0, z1] of bands) {
+		let part = clipAtZ(outline, z0, z => z >= z0);
 		if (z1 < Infinity) part = clipAtZ(part, z1, z => z <= z1);
 		if (part.length < 3) continue;
 		const geometry = new THREE.ShapeGeometry(new THREE.Shape(part.map(([x, z]) => new THREE.Vector2(x, -z))));
@@ -192,7 +193,7 @@ const createRakeSlab = (outline: number[][], top: number, material: THREE.Materi
 			position.setXYZ(i, position.getX(i), height(z), z);
 		}
 		geometry.computeBoundingSphere();
-		group.add(new THREE.Mesh(geometry, bandMaterial));
+		group.add(new THREE.Mesh(geometry, material));
 	}
 	return group;
 };
@@ -277,11 +278,23 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 			// Outlines follow the scanned floor, so they already leave R0 (open from 3F up through 4F) out
 			pivot.add(createSlab(outlines, y, floorMaterials.get(id)!));
 		} else {
-			// R0's own floor, filling the hole the 3F outline leaves: a flat 3F sheet catching every view under the rake,
-			// and the rake sheet along the seating itself
+			// R0's own floor, filling the hole the 3F outline leaves: a flat 3F sheet catching every view under the rake
+			// (plain dark behind the top row, and on past R0's back), and the rake sheet along the seating itself
 			const { y, outlines } = floorOutlines["3f"];
 			const hole = outlines[0].holes[0];
-			pivot.add(createSlab([{ outer: hole, holes: [] }], y, floorMaterials.get("3f")!));
+			const xs = hole.map(([x]) => x);
+			const [x0, x1] = [Math.min(...xs), Math.max(...xs)];
+			const z0 = Math.min(...hole.map(([, z]) => z)) - R0_BACK_DROP_REACH;
+			const front = clipAtZ(hole, R0_TOP_ROW_Z, z => z >= R0_TOP_ROW_Z);
+			const back = [
+				[x0, z0],
+				[x1, z0],
+				[x1, R0_TOP_ROW_Z],
+				[x0, R0_TOP_ROW_Z]
+			];
+			const backMaterial = new THREE.MeshBasicMaterial({ color: R0_BACK_FLOOR_COLOR, side: THREE.DoubleSide });
+			pivot.add(createSlab([{ outer: front, holes: [] }], y, floorMaterials.get("3f")!));
+			pivot.add(createSlab([{ outer: back, holes: [] }], y - 0.01, backMaterial));
 			pivot.add(createRakeSlab(hole, floorOutlines["4f"].y, floorMaterials.get("3f")!));
 		}
 
