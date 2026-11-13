@@ -1,0 +1,9 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "sinica-hss-venue-3dgs",
+	"compatibility_date": "2026-11-13",
+	"routes": [{ "pattern": "sinica-hss.gnehs.net", "custom_domain": true }],
+	"assets": {
+		"directory": "./dist"
+	}
+}

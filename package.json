@@ -1,0 +1,30 @@
+{
+	"name": "sinica-hss-venue-3dgs",
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"astro": "astro",
+		"build": "astro build",
+		"deploy": "astro build && wrangler deploy",
+		"dev": "astro dev",
+		"format": "prettier --write .",
+		"preinstall": "npx only-allow pnpm",
+		"preview": "astro preview",
+		"test": "astro check"
+	},
+	"dependencies": {
+		"@sparkjsdev/spark": "2.4.0",
+		"astro": "^5.16.12",
+		"gsap": "^3.14.2",
+		"three": "^0.182.0"
+	},
+	"devDependencies": {
+		"@astrojs/check": "^0.9.6",
+		"@types/three": "^0.182.0",
+		"prettier": "^3.8.1",
+		"prettier-plugin-astro": "^0.14.1",
+		"typescript": "^5.9.3",
+		"wrangler": "^4.161.0"
+	},
+	"packageManager": "pnpm@12.18.0"
+}

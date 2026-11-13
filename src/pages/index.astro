@@ -1,0 +1,777 @@
+---
+import venueData from "@/data/venue.json";
+import Layout from "@/layout/Layout.astro";
+import Icon from "@/components/Icon.astro";
+
+const seo = {
+	title: "中央研究院人文社會科學館 3D 互動地圖｜3DGS 掃描",
+	description: "中央研究院人文社會科學館的互動 3D 地圖，以 3D Gaussian Splatting（3DGS）掃描重建。可依 2F、3F、4F 瀏覽 R0 至 R3 議程廳、S0 與午餐區，並進入房間查看高解析度模型。",
+	imageAlt: "中央研究院人文社會科學館 R0 議程廳的 3DGS 模型，以油畫筆觸渲染",
+	jsonLd: {
+		"@type": "WebPage",
+		name: "中央研究院人文社會科學館 3D 互動地圖",
+		inLanguage: "zh-Hant-TW",
+		license: "https://creativecommons.org/licenses/by/4.0/",
+		creator: { "@type": "Person", name: "gnehs", url: "https://gnehs.net/" },
+		about: {
+			"@type": "Place",
+			name: "中央研究院人文社會科學館",
+			containedInPlace: { "@type": "Place", name: "中央研究院" },
+			address: { "@type": "PostalAddress", streetAddress: "研究院路二段128號", addressLocality: "南港區", addressRegion: "臺北市", addressCountry: "TW" }
+		}
+	}
+};
+
+const t = {
+	title: "中央研究院人文社會科學館",
+	floors: "樓層",
+	dragHint: "拖曳旋轉・捲動縮放",
+	loading: "載入 3D 場景",
+	visitWebsite: "前往官網"
+};
+
+type VenueItem = { name: string; description?: string; longDescription?: string; link?: string };
+type VenueFloor = { id: string; label: string; description?: string; items: VenueItem[] };
+const floors = venueData as VenueFloor[];
+
+// Floor and place descriptions are optional; a "議程廳" label adds nothing under a room's name, other notes do
+const venueFloors = floors.map(floor => ({
+	id: floor.id,
+	label: floor.label,
+	description: floor.description ?? "",
+	items: floor.items.map((item, index) => {
+		const note = !item.description || item.description === "議程廳" ? "" : item.description;
+		return { id: `${floor.id}-${index}`, name: item.name, note, detail: item.longDescription || note, link: item.link ?? "" };
+	})
+}));
+---
+
+<Layout title={seo.title} description={seo.description} imageAlt={seo.imageAlt} jsonLd={seo.jsonLd}>
+	<main class="venue">
+		<canvas id="venue-canvas"></canvas>
+		<div class="edge-shade" aria-hidden="true"></div>
+
+		<button class="info-btn" type="button" popovertarget="info-panel" aria-label="關於這個模型">
+			<Icon name="info" size={18} strokeWidth={1.75} />
+		</button>
+		<div class="info-panel" id="info-panel" popover>
+			<p class="info-kicker">3DGS 會場地圖</p>
+			<p class="info-intro">這是中央研究院人文社會科學館的互動 3D 地圖，以 3D Gaussian Splatting（3DGS）掃描重建。</p>
+			<p class="info-hint">拖曳旋轉・滾輪或雙指縮放</p>
+			<p class="info-lead">可以到這邊逛完整模型</p>
+			<ul class="info-links">
+				<li>
+					<a href="https://superspl.at/scene/5874982f" target="_blank" rel="noopener noreferrer">
+						<span>完整版<small>Full version</small><em>建議用電腦開啟</em></span>
+						<Icon name="external-link" size={15} strokeWidth={1.75} />
+					</a>
+				</li>
+				<li>
+					<a href="https://superspl.at/scene/21d99ba8" target="_blank" rel="noopener noreferrer">
+						<span>寶寶版<small>Baby version（25%）</small><em>推薦給所有使用者</em></span>
+						<Icon name="external-link" size={15} strokeWidth={1.75} />
+					</a>
+				</li>
+			</ul>
+			<p class="info-license">
+				本模型以 <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a> 授權釋出，使用時請標註由 <a
+					href="https://gnehs.net/"
+					target="_blank"
+					rel="noopener noreferrer"
+				>
+					gnehs
+				</a> 掃描製作。
+			</p>
+		</div>
+
+		<aside class="panel" id="venue-panel">
+			<header class="panel-head">
+				<h1>{t.title}</h1>
+			</header>
+			<div class="room-scroll" data-lenis-prevent>
+				{
+					venueFloors.map(floor => (
+						<section class="floor-group" data-floor={floor.id}>
+							<button class="floor-title" type="button" data-nav={floor.id} aria-pressed="false">
+								<span class="floor-label">{floor.label}</span>
+								{floor.description && <span class="floor-desc">{floor.description}</span>}
+							</button>
+							<ul class="room-list">
+								{floor.items.map(item => (
+									<li>
+										<button class="room-row" type="button" data-area-id={item.id} data-name={item.name}>
+											<span class="room-name">{item.name}</span>
+											{item.note && <span class="room-note">{item.note}</span>}
+											{item.detail && item.detail !== item.note && <span class="room-extra">{item.detail}</span>}
+										</button>
+										{item.link && (
+											<a class="room-link" href={item.link} target="_blank" rel="noopener noreferrer">
+												{t.visitWebsite}
+												<Icon name="external-link" size={13} strokeWidth={2} />
+											</a>
+										)}
+									</li>
+								))}
+							</ul>
+						</section>
+					))
+				}
+			</div>
+		</aside>
+
+		<p class="gesture-hint" aria-hidden="true">{t.dragHint}</p>
+
+		<div class="loader" id="viewer-loader" role="status">
+			<span class="mono-label">{t.loading}</span>
+			<span class="loader-track"><span class="loader-fill" id="loader-fill"></span></span>
+		</div>
+
+		<div class="hover-label" id="hover-label" aria-hidden="true"></div>
+	</main>
+</Layout>
+
+<style>
+	.venue {
+		--bg: #eeede9;
+		--card: rgba(250, 249, 246, 0.84);
+		--line: rgba(40, 32, 18, 0.08);
+		--track: #e8e6e1;
+		--ink: #1f1c17;
+		--ink-soft: #57524a;
+		--ink-faint: #9b958a;
+		--warm-a: #f8d978;
+		--warm-b: #f1a73c;
+		--shadow: 0 1.75rem 3.5rem -1.75rem rgba(54, 40, 16, 0.28), 0 0.25rem 0.75rem -0.25rem rgba(54, 40, 16, 0.08);
+		--ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+		--gutter: clamp(1rem, 2.4vw, 2.25rem);
+		--panel-w: 21.5rem;
+		--radius: 1.75rem;
+
+		position: relative;
+		width: 100%;
+		height: 100vh;
+		height: 100dvh;
+		overflow: hidden;
+		background: radial-gradient(ellipse 70% 70% at 58% 50%, #fbfaf7 0%, var(--bg) 70%);
+		color: var(--ink);
+	}
+
+	#venue-canvas {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		display: block;
+		touch-action: none;
+	}
+
+	/* Fade the scan into the page where it runs off the canvas */
+	.edge-shade {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		background: radial-gradient(ellipse 72% 70% at 58% 52%, transparent 50%, rgba(238, 237, 233, 0.92) 100%);
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+		mask-image: radial-gradient(ellipse 72% 70% at 58% 52%, transparent 55%, black 100%);
+		-webkit-mask-image: radial-gradient(ellipse 72% 70% at 58% 52%, transparent 55%, black 100%);
+	}
+
+	button {
+		font: inherit;
+		color: inherit;
+		background: none;
+		border: 0;
+		cursor: pointer;
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--warm-b);
+		outline-offset: 2px;
+	}
+
+	.mono-label {
+		margin: 0;
+		font-size: 0.7rem;
+		font-weight: 500;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink-soft);
+	}
+
+	.panel,
+	.hover-label,
+	.loader {
+		background: var(--card);
+		border: 1px solid var(--line);
+		backdrop-filter: blur(20px) saturate(1.3);
+		-webkit-backdrop-filter: blur(20px) saturate(1.3);
+		box-shadow: var(--shadow);
+	}
+
+	/* ── Info ─────────────────────────────────────────────────────── */
+	.info-btn {
+		position: absolute;
+		z-index: 3;
+		top: var(--gutter);
+		right: var(--gutter);
+		display: grid;
+		place-items: center;
+		width: 2.5rem;
+		height: 2.5rem;
+		border-radius: 999px;
+		color: var(--ink-soft);
+		background: var(--card);
+		border: 1px solid var(--line);
+		backdrop-filter: blur(20px) saturate(1.3);
+		-webkit-backdrop-filter: blur(20px) saturate(1.3);
+		box-shadow: var(--shadow);
+		transition:
+			color 0.2s ease,
+			transform 0.2s var(--ease-out);
+	}
+
+	.info-btn:hover {
+		color: var(--ink);
+	}
+
+	.info-btn:active {
+		transform: scale(0.94);
+	}
+
+	.info-panel {
+		position: fixed;
+		inset: auto;
+		top: calc(var(--gutter) + 3rem);
+		right: var(--gutter);
+		width: min(20rem, calc(100vw - var(--gutter) * 2));
+		margin: 0;
+		padding: 1.25rem;
+		border: 1px solid var(--line);
+		border-radius: 1.5rem;
+		color: var(--ink);
+		background: rgba(250, 249, 246, 0.94);
+		backdrop-filter: blur(20px) saturate(1.3);
+		-webkit-backdrop-filter: blur(20px) saturate(1.3);
+		box-shadow: var(--shadow);
+		opacity: 0;
+		translate: 0 -6px;
+		transition:
+			opacity 0.2s ease,
+			translate 0.25s var(--ease-out),
+			display 0.25s allow-discrete,
+			overlay 0.25s allow-discrete;
+	}
+
+	.info-panel:popover-open {
+		opacity: 1;
+		translate: 0 0;
+	}
+
+	@starting-style {
+		.info-panel:popover-open {
+			opacity: 0;
+			translate: 0 -6px;
+		}
+	}
+
+	.info-kicker {
+		margin: 0 0 0.375rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		color: var(--ink-faint);
+	}
+
+	.info-intro {
+		margin: 0 0 0.5rem;
+		font-size: 0.86rem;
+		line-height: 1.75;
+		color: var(--ink-soft);
+	}
+
+	.info-hint {
+		margin: 0 0 1rem;
+		padding-bottom: 1rem;
+		border-bottom: 1px solid var(--line);
+		font-size: 0.78rem;
+		color: var(--ink-faint);
+	}
+
+	.info-lead {
+		margin: 0 0 0.75rem;
+		font-size: 0.9rem;
+		font-weight: 600;
+	}
+
+	.info-links {
+		display: grid;
+		gap: 0.5rem;
+		margin: 0 0 1rem;
+		padding: 0;
+		list-style: none;
+	}
+
+	.info-links a {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.75rem 0.9rem;
+		border-radius: 1rem;
+		text-decoration: none;
+		color: var(--ink);
+		background: rgba(40, 32, 18, 0.045);
+		transition: background-color 0.2s ease;
+	}
+
+	.info-links a:hover {
+		background: rgba(40, 32, 18, 0.08);
+	}
+
+	.info-links span {
+		display: grid;
+		gap: 0.05rem;
+		font-size: 0.92rem;
+		font-weight: 600;
+	}
+
+	.info-links small {
+		font-size: 0.75rem;
+		font-weight: 400;
+		color: var(--ink-faint);
+	}
+
+	.info-links em {
+		margin-top: 0.2rem;
+		font-size: 0.75rem;
+		font-style: normal;
+		font-weight: 500;
+		color: var(--ink-soft);
+	}
+
+	.info-links :global(svg) {
+		flex: none;
+		color: var(--ink-faint);
+	}
+
+	.info-license {
+		margin: 0;
+		font-size: 0.78rem;
+		line-height: 1.7;
+		color: var(--ink-soft);
+	}
+
+	.info-license a {
+		color: var(--ink);
+		text-underline-offset: 0.2em;
+	}
+
+	/* ── Panel ───────────────────────────────────────────────────── */
+	/* Sidebar: the site title on top, floors and places below, running the full height */
+	.panel {
+		position: absolute;
+		z-index: 3;
+		left: var(--gutter);
+		top: var(--gutter);
+		bottom: var(--gutter);
+		width: var(--panel-w);
+		display: flex;
+		flex-direction: column;
+		border-radius: var(--radius);
+		overflow: hidden;
+	}
+
+	/* One list for the whole building, floor titles between the groups */
+	.floor-group + .floor-group {
+		margin-top: 0.5rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid var(--line);
+	}
+
+	.floor-title {
+		display: flex;
+		align-items: baseline;
+		gap: 0.625rem;
+		width: 100%;
+		padding: 0.625rem 0.375rem 0.375rem;
+		text-align: left;
+	}
+
+	.floor-label {
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: var(--ink-faint);
+		transition: color 0.2s ease;
+	}
+
+	.floor-desc {
+		font-size: 0.78rem;
+		color: var(--ink-faint);
+	}
+
+	.floor-title:hover .floor-label,
+	.floor-title[aria-pressed="true"] .floor-label {
+		color: var(--ink);
+	}
+
+	.panel-head {
+		flex: none;
+		padding: 1.5rem 1.25rem 0.75rem;
+	}
+
+	.panel-head h1 {
+		margin: 0;
+		font-size: 1.4rem;
+		font-weight: 700;
+		line-height: 1.3;
+		letter-spacing: -0.01em;
+	}
+
+	.room-scroll {
+		flex: 1;
+		min-height: 0;
+		padding: 0.5rem 1.25rem 1rem;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		scrollbar-width: thin;
+		scrollbar-color: rgba(40, 32, 18, 0.18) transparent;
+	}
+
+	/* Places as two-column cards; a floor with a single place gets one full-width card */
+	.room-list {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.5rem;
+		margin: 0;
+		padding: 0.25rem 0 0.25rem;
+		list-style: none;
+	}
+
+	.room-list li:only-child {
+		grid-column: 1 / -1;
+	}
+
+	.room-row {
+		display: grid;
+		align-content: end;
+		gap: 0.1rem;
+		width: 100%;
+		min-height: 4.5rem;
+		padding: 0.875rem 1rem;
+		border-radius: 1rem;
+		text-align: left;
+		background: rgba(40, 32, 18, 0.045);
+		transition:
+			background-color 0.2s ease,
+			color 0.2s ease,
+			transform 0.2s var(--ease-out);
+	}
+
+	.room-row:hover {
+		background: rgba(40, 32, 18, 0.08);
+	}
+
+	.room-row:active {
+		transform: scale(0.98);
+	}
+
+	.room-name {
+		font-size: 1rem;
+		font-weight: 600;
+		line-height: 1.4;
+	}
+
+	.room-note {
+		font-size: 0.78rem;
+		line-height: 1.45;
+		color: var(--ink-faint);
+		transition: color 0.2s ease;
+	}
+
+	/* Focused place: dark fill, light text */
+	.room-row.active {
+		color: #fff;
+		background: var(--ink);
+	}
+
+	.room-row.active .room-note {
+		color: #b8b1a4;
+	}
+
+	/* Longer notes and links only show for the focused row */
+	.room-extra {
+		display: none;
+		margin-top: 0.4rem;
+		font-size: 0.82rem;
+		line-height: 1.65;
+		color: #ddd7cb;
+		white-space: pre-line;
+	}
+
+	.room-row.active .room-extra {
+		display: block;
+	}
+
+	.room-link {
+		display: none;
+		align-items: center;
+		gap: 0.35rem;
+		width: fit-content;
+		margin: 0.4rem 0 0.25rem 0.375rem;
+		padding: 0.4rem 0.8rem;
+		border-radius: 999px;
+		font-size: 0.78rem;
+		font-weight: 600;
+		text-decoration: none;
+		color: var(--ink);
+		background: var(--track);
+	}
+
+	.room-row.active + .room-link {
+		display: inline-flex;
+	}
+
+	/* ── Hints ───────────────────────────────────────────────────── */
+	.gesture-hint {
+		position: absolute;
+		z-index: 2;
+		right: var(--gutter);
+		bottom: var(--gutter);
+		margin: 0;
+		font-size: 0.7rem;
+		letter-spacing: 0.06em;
+		color: var(--ink-faint);
+		pointer-events: none;
+	}
+
+	.loader {
+		position: absolute;
+		z-index: 4;
+		left: calc(50% + var(--panel-w) / 2);
+		top: 50%;
+		translate: -50% -50%;
+		display: grid;
+		gap: 0.75rem;
+		min-width: 13rem;
+		padding: 1rem 1.25rem;
+		border-radius: 1.25rem;
+		transition:
+			opacity 0.5s ease,
+			visibility 0.5s;
+	}
+
+	.loader.done {
+		opacity: 0;
+		visibility: hidden;
+	}
+
+	.loader-track {
+		height: 4px;
+		border-radius: 4px;
+		background: var(--track);
+		overflow: hidden;
+	}
+
+	.loader-fill {
+		display: block;
+		height: 100%;
+		width: 0;
+		border-radius: 4px;
+		background: linear-gradient(90deg, var(--warm-a), var(--warm-b));
+		transition: width 0.4s var(--ease-out);
+	}
+
+	.hover-label {
+		position: fixed;
+		z-index: 5;
+		left: 0;
+		top: 0;
+		padding: 0.4rem 0.8rem;
+		border-radius: 999px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		white-space: nowrap;
+		pointer-events: none;
+		opacity: 0;
+		transition: opacity 0.15s ease;
+	}
+
+	.hover-label.show {
+		opacity: 1;
+	}
+
+	/* ── Tablet & phone: model on top, place list below ──────────── */
+	@media (max-width: 1024px) {
+		.venue {
+			--panel-w: 0rem;
+			--list-h: min(46dvh, 26rem);
+		}
+
+		#venue-canvas,
+		.edge-shade {
+			bottom: auto;
+			height: calc(100% - var(--list-h));
+		}
+
+		.panel-head {
+			padding: 1.1rem 1.25rem 0.25rem;
+		}
+
+		.panel-head h1 {
+			font-size: 1.15rem;
+		}
+
+		.panel {
+			left: 0;
+			right: 0;
+			top: auto;
+			bottom: 0;
+			width: auto;
+			max-height: none;
+			height: var(--list-h);
+			border-radius: var(--radius) var(--radius) 0 0;
+			border-bottom: 0;
+			padding-bottom: env(safe-area-inset-bottom);
+		}
+
+		.gesture-hint {
+			display: none;
+		}
+
+		.loader {
+			left: 50%;
+			top: calc((100% - var(--list-h)) / 2);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.venue *,
+		.venue *::before,
+		.venue *::after {
+			transition-duration: 0.01ms !important;
+		}
+	}
+</style>
+
+<script>
+	import { createVenueViewer, isFloorId, type AreaDef, type FloorId, type VenueViewer } from "@/components/venue/venue-viewer";
+	import floors from "@/data/venue.json";
+
+	const AREAS: AreaDef[] = floors.flatMap(floor =>
+		isFloorId(floor.id) ? floor.items.map((item, index) => ({ id: `${floor.id}-${index}`, floor: floor.id as FloorId, area: item.area, model: "room" in item.area ? item.id : undefined })) : []
+	);
+	const INITIAL_FLOOR: FloorId = "3f";
+
+	let viewer: VenueViewer | null = null;
+	let teardown: (() => void)[] = [];
+
+	const init = () => {
+		const root = document.querySelector<HTMLElement>(".venue");
+		const canvas = document.getElementById("venue-canvas") as HTMLCanvasElement | null;
+		const panel = document.getElementById("venue-panel");
+		if (!root || !canvas || !panel) return;
+
+		const loader = document.getElementById("viewer-loader")!;
+		const loaderFill = document.getElementById("loader-fill")!;
+		const hoverLabel = document.getElementById("hover-label")!;
+		const rows = new Map(Array.from(root.querySelectorAll<HTMLElement>(".room-row")).map(row => [row.dataset.areaId!, row]));
+
+		const isStacked = () => window.innerWidth <= 1024;
+		let currentFloor: FloorId = INITIAL_FLOOR;
+		let selectedId: string | null = null;
+
+		const listen = (el: EventTarget, type: string, fn: (e: any) => void) => {
+			el.addEventListener(type, fn);
+			teardown.push(() => el.removeEventListener(type, fn));
+		};
+
+		const syncFloorTitles = () => {
+			root.querySelectorAll<HTMLElement>(".floor-title").forEach(title => title.setAttribute("aria-pressed", String(title.dataset.nav === currentFloor)));
+		};
+
+		const clearActiveRow = () => rows.forEach(row => row.classList.remove("active"));
+
+		const goFloor = (floor: FloorId) => {
+			const changed = floor !== currentFloor;
+			currentFloor = floor;
+			selectedId = null;
+			clearActiveRow();
+			viewer?.clearSelection();
+			if (changed) viewer?.showFloor(floor);
+			syncFloorTitles();
+		};
+
+		/** Focus a place in the list and the 3D view; clicking the focused place again lets go of it. */
+		const focusPlace = (id: string) => {
+			const row = rows.get(id);
+			if (!row) return;
+			const floor = id.split("-")[0];
+			if (isFloorId(floor) && floor !== currentFloor) goFloor(floor);
+			if (selectedId === id) {
+				selectedId = null;
+				clearActiveRow();
+				viewer?.clearSelection();
+				return;
+			}
+			selectedId = id;
+			clearActiveRow();
+			row.classList.add("active");
+			viewer?.selectArea(id);
+		};
+
+		// ── Wiring ───────────────────────────────────────────────────
+		root.querySelectorAll<HTMLElement>(".floor-title").forEach(title =>
+			listen(title, "click", () => {
+				const floor = title.dataset.nav!;
+				if (isFloorId(floor)) goFloor(floor);
+			})
+		);
+		rows.forEach((row, id) => listen(row, "click", () => focusPlace(id)));
+
+		viewer = createVenueViewer({
+			canvas,
+			areas: AREAS,
+			initialFloor: INITIAL_FLOOR,
+			getInsets: () => {
+				// Stacked layout: the canvas already stops above the list; otherwise leave room for the sidebar
+				if (isStacked()) return { left: 0, top: 0, bottom: 0 };
+				return { left: panel.getBoundingClientRect().right, top: 0, bottom: 0 };
+			},
+			onAreaClick: id => {
+				if (id) {
+					if (id !== selectedId) focusPlace(id);
+					rows.get(id)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+				} else if (selectedId) {
+					goFloor(currentFloor);
+				}
+			},
+			onHover: hit => {
+				if (!hit) return hoverLabel.classList.remove("show");
+				hoverLabel.textContent = rows.get(hit.id)?.dataset.name ?? "";
+				hoverLabel.style.transform = `translate(${hit.x + 14}px, ${hit.y + 14}px)`;
+				hoverLabel.classList.add("show");
+			},
+			onProgress: (done, total) => {
+				loaderFill.style.width = `${(done / total) * 100}%`;
+				if (done === total) loader.classList.add("done");
+			}
+		});
+		// The viewer already opens on the initial floor; this only marks it in the list
+		goFloor(INITIAL_FLOOR);
+	};
+
+	const destroy = () => {
+		teardown.forEach(fn => fn());
+		teardown = [];
+		viewer?.dispose();
+		viewer = null;
+	};
+
+	init();
+	document.addEventListener("astro:before-swap", destroy);
+	document.addEventListener("astro:after-swap", () => {
+		destroy();
+		init();
+	});
+</script>

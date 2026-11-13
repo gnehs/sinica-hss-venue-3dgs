@@ -1,0 +1,91 @@
+---
+import "@/styles/composite-font.css";
+
+interface Props {
+	title: string;
+	description: string;
+	/** Path of a 1200×630 share image under public/ */
+	image?: string;
+	imageAlt?: string;
+	jsonLd?: Record<string, unknown>;
+}
+
+const { title, description, image = "/og.jpg", imageAlt, jsonLd } = Astro.props;
+// Share cards and canonical links need absolute URLs, so they come from `site` in astro.config.mjs
+const site = Astro.site;
+const canonical = site ? new URL(Astro.url.pathname, site).href : undefined;
+const imageUrl = site ? new URL(image, site).href : image;
+---
+
+<html lang="zh-Hant-TW">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+		<meta name="generator" content={Astro.generator} />
+		<title>{title}</title>
+		<meta name="description" content={description} />
+		{canonical && <link rel="canonical" href={canonical} />}
+		<meta name="robots" content="index, follow, max-image-preview:large" />
+		<meta name="theme-color" content="#eeede9" />
+
+		<meta property="og:type" content="website" />
+		<meta property="og:locale" content="zh_TW" />
+		<meta property="og:site_name" content={title} />
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+		{canonical && <meta property="og:url" content={canonical} />}
+		<meta property="og:image" content={imageUrl} />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		{imageAlt && <meta property="og:image:alt" content={imageAlt} />}
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content={title} />
+		<meta name="twitter:description" content={description} />
+		<meta name="twitter:image" content={imageUrl} />
+		{jsonLd && <script type="application/ld+json" set:html={JSON.stringify({ "@context": "https://schema.org", ...jsonLd, ...(canonical && { url: canonical }), image: imageUrl })} />}
+		<link
+			rel="icon"
+			href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%231f1c17'/%3E%3Cpath d='M9 20l7 4 7-4M9 15l7 4 7-4M16 8l7 4-7 4-7-4z' fill='none' stroke='%23f8d978' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E"
+		/>
+
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	</head>
+	<body>
+		<slot />
+	</body>
+</html>
+
+<style is:global>
+	*,
+	*::before,
+	*::after {
+		box-sizing: border-box;
+	}
+
+	html,
+	body {
+		margin: 0;
+		height: 100%;
+		background: #eeede9;
+		-webkit-font-smoothing: antialiased;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	body {
+		overscroll-behavior: none;
+		font-family: "My Composite", "Noto Sans TC", sans-serif;
+		text-autospace: normal;
+		text-spacing-trim: trim-start;
+		line-break: strict;
+		hanging-punctuation: allow-end;
+		font-feature-settings: "palt";
+		font-variant-numeric: lining-nums tabular-nums;
+		font-synthesis-style: none;
+	}
+
+	button,
+	input {
+		font: inherit;
+	}
+</style>
