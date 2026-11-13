@@ -182,7 +182,9 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 	content.position.copy(MODEL_CENTER).negate();
 	modelGroup.add(content);
 	const trees = createTrees();
-	content.add(trees.group);
+	// Holder so being inside a room can hide the trees without fighting the dim fade over trees.group.visible
+	const treeLayer = new THREE.Group().add(trees.group);
+	content.add(treeLayer);
 
 	const pickMaterial = new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide });
 	// One unlit, colour-mapped material per slice; shape UVs are scan (x, -z), remapped onto the map's rectangle
@@ -401,10 +403,15 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 	/** Sims-style cutaway: hide the walls whose outside faces the camera, and the ceiling when looking from above. */
 	const local = new THREE.Vector3();
 	const updateCutaway = () => {
-		if (!activeRoom) return;
+		if (!activeRoom) {
+			treeLayer.visible = true;
+			return;
+		}
 		const { area, model } = activeRoom;
 		area.region.pivot.worldToLocal(local.copy(camera.position));
 		const cut = model.walls.map(wall => (local.clone().sub(wall.mid).dot(wall.normal) > 0 ? "1" : "0")).join("") + (local.y > model.ceilingAt(local.x, local.z) ? "c" : "");
+		// Nothing cut away means the camera is inside the room, where the trees would only show through the walls
+		treeLayer.visible = /[1c]/.test(cut);
 		if (cut === model.cut) return;
 		model.cut = cut;
 		const edit = model.splat.edits![0];
