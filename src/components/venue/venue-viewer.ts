@@ -32,8 +32,9 @@ const R0_STAGE_Y = -0.35;
 const R0_STAGE_EDGE = 0.9;
 const R0_RAKE = 0.205;
 const R0_CROP_DEPTH = 0.04;
-// Behind R0's top row the scan has no floor (a control booth overhangs it) and the floor map shows the booth's roof,
-// so the rake sheet ends there and the 3F sheet below turns plain dark: a drop, not a raised floor or a pale strip.
+// Behind R0's top row the floor steps down to the 4F floor's height, under the rake crop, so the chunk carries it
+// separately from the source scan. The floor map there shows the booth's roof, so the rake sheet ends at the top row
+// and the 3F sheet below turns plain dark.
 const R0_TOP_ROW_Z = -2.3;
 const R0_BACK_FLOOR_COLOR = "#504638";
 const r0FloorY = (z: number) => R0_STAGE_Y + Math.max(0, R0_STAGE_EDGE - z) * R0_RAKE;
