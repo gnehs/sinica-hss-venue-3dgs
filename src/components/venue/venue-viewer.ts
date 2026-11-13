@@ -23,8 +23,16 @@ const FLOOR_LEVELS: Record<FloorId, [number, number]> = {
 // full-height chunk that shows whenever 3F or 4F does
 const R0_CHUNK = "r0" as const;
 const R0_FLOORS: readonly FloorId[] = ["3f", "4f"];
-// R0's floor: a flat stage at the front, then a rake rising 0.205 per unit towards the back. Must match the crop.
-const r0FloorY = (z: number) => (z > 0.9 ? -0.35 : -0.35 + (0.9 - z) * 0.205);
+// R0's floor: a flat stage at the front, then a rake rising towards the back. Must match the crop,
+// which keeps everything from R0_CROP_DEPTH under this floor upwards.
+const R0_STAGE_Y = -0.35;
+const R0_STAGE_EDGE = 0.9;
+const R0_RAKE = 0.205;
+const R0_CROP_DEPTH = 0.04;
+// Behind R0's top row the scan has no floor (a control booth overhangs it) and the floor map shows the booth's roof
+const R0_TOP_ROW_Z = -2.3;
+const R0_BACK_FLOOR_COLOR = "#504638";
+const r0FloorY = (z: number) => R0_STAGE_Y + Math.max(0, R0_STAGE_EDGE - z) * R0_RAKE;
 type ChunkId = FloorId | typeof R0_CHUNK;
 const CHUNK_IDS: readonly ChunkId[] = [...FLOOR_IDS, R0_CHUNK];
 const MODEL_SCALE = 0.8;
@@ -143,6 +151,52 @@ const createSlab = (outlines: { outer: number[][]; holes: number[][][] }[], top:
 	return slab;
 };
 
+/** Clip a polygon (scan x, z) to the side of the line z = `edge` where `keep` holds (Sutherland–Hodgman). */
+const clipAtZ = (points: number[][], edge: number, keep: (z: number) => boolean) => {
+	const out: number[][] = [];
+	points.forEach((p, i) => {
+		const q = points[(i + 1) % points.length];
+		if (keep(p[1])) out.push(p);
+		if (keep(p[1]) !== keep(q[1])) out.push([p[0] + ((q[0] - p[0]) * (edge - p[1])) / (q[1] - p[1]), edge]);
+	});
+	return out;
+};
+
+/**
+ * R0's rake sheet: `outline` (scan x, z) laid on the stage and rake just under the R0 chunk's crop, so gaps in the
+ * scanned seating show floor at the seats' own depth instead of the 3F sheet a whole storey below.
+ * It levels off at `top` (the 4F floor) for the top rows, and behind them is a plain carpet colour, as the floor map
+ * there shows the booth roof. Cut at every bend, each band is planar, so its outline vertices place it exactly.
+ */
+const createRakeSlab = (outline: number[][], top: number, material: THREE.Material) => {
+	const height = (z: number) => Math.min(r0FloorY(z) - R0_CROP_DEPTH, top);
+	// Where the rake reaches `top`
+	const crest = R0_STAGE_EDGE - (top + R0_CROP_DEPTH - R0_STAGE_Y) / R0_RAKE;
+	const backMaterial = new THREE.MeshBasicMaterial({ color: R0_BACK_FLOOR_COLOR, side: THREE.DoubleSide });
+	const bands: [number, number, THREE.Material][] = [
+		[R0_STAGE_EDGE, Infinity, material],
+		[crest, R0_STAGE_EDGE, material],
+		[R0_TOP_ROW_Z, crest, material],
+		[-Infinity, R0_TOP_ROW_Z, backMaterial]
+	];
+	const group = new THREE.Group();
+	for (const [z0, z1, bandMaterial] of bands) {
+		let part = outline;
+		if (z0 > -Infinity) part = clipAtZ(part, z0, z => z >= z0);
+		if (z1 < Infinity) part = clipAtZ(part, z1, z => z <= z1);
+		if (part.length < 3) continue;
+		const geometry = new THREE.ShapeGeometry(new THREE.Shape(part.map(([x, z]) => new THREE.Vector2(x, -z))));
+		const position = geometry.attributes.position;
+		for (let i = 0; i < position.count; i++) {
+			const z = -position.getY(i);
+			position.setXYZ(i, position.getX(i), height(z), z);
+		}
+		geometry.computeBoundingSphere();
+		group.add(new THREE.Mesh(geometry, bandMaterial));
+	}
+	return group;
+};
+
 export const createVenueViewer = (options: VenueViewerOptions) => {
 	const { canvas } = options;
 	const scene = new THREE.Scene();
@@ -223,9 +277,12 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 			// Outlines follow the scanned floor, so they already leave R0 (open from 3F up through 4F) out
 			pivot.add(createSlab(outlines, y, floorMaterials.get(id)!));
 		} else {
-			// R0's own floor: a flat 3F sheet filling the hole the 3F outline leaves, under the raked seating
+			// R0's own floor, filling the hole the 3F outline leaves: a flat 3F sheet catching every view under the rake,
+			// and the rake sheet along the seating itself
 			const { y, outlines } = floorOutlines["3f"];
-			pivot.add(createSlab([{ outer: outlines[0].holes[0], holes: [] }], y, floorMaterials.get("3f")!));
+			const hole = outlines[0].holes[0];
+			pivot.add(createSlab([{ outer: hole, holes: [] }], y, floorMaterials.get("3f")!));
+			pivot.add(createRakeSlab(hole, floorOutlines["4f"].y, floorMaterials.get("3f")!));
 		}
 
 		splat.initialized.then(() => {
