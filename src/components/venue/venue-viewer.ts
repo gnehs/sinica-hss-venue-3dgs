@@ -80,8 +80,7 @@ export const isFloorId = (id: string): id is FloorId => (FLOOR_IDS as readonly s
  * and how high the camera sits, and where it aims between the screen (0) and the room centre (1).
  * `room` is the height range of the room's own full-height, full-density model (public/models/venue/rooms/<model>.sog),
  * shown in place of the floor slice while the room is selected.
- * `ceiling` is `[height at the screen, rise per unit towards the back]` for a room whose ceiling is sloped (R0)
- * or sits well below the top of `room` (S0, whose sparse ceiling scan would otherwise haze over the room);
+ * `ceiling` is `[height at the screen, rise per unit towards the back]` for a room whose ceiling is not level (R0);
  * otherwise the ceiling is taken as just under the top of `room`.
  */
 export type AreaShape = {
