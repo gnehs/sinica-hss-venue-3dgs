@@ -31,8 +31,8 @@ const R0_RAKE = 0.205;
 const R0_CROP_DEPTH = 0.04;
 // Behind R0's top row the scan has no floor (a control booth overhangs it) and the floor map shows the booth's roof,
 // so the rake sheet ends there and the 3F sheet below turns plain dark: a drop, not a raised floor or a pale strip.
-// From 4F the drop is seen past R0's back edge, where 3F is not drawn, so the dark sheet runs on this far under the
-// 4F floor, just below the 3F slab that hides it from 3F.
+// From 4F the drop is also seen past R0's back edge, where 3F is not drawn, so the 4F slice carries a dark sheet
+// running on this far behind R0 at the 3F floor's height (3F has no floor out there, so only 4F may show it).
 const R0_TOP_ROW_Z = -2.3;
 const R0_BACK_DROP_REACH = 1.2;
 const R0_BACK_FLOOR_COLOR = "#504638";
@@ -262,6 +262,9 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 	const holeEdit = new SplatEdit({ rgbaBlendMode: SplatEditRgbaBlendMode.MULTIPLY, softEdge: 0.04, sdfs: [] });
 	const holeState = { opacity: 1 };
 
+	const r0Hole = floorOutlines["3f"].outlines[0].holes[0];
+	const r0FloorSheetY = floorOutlines["3f"].y;
+	const r0BackMaterial = new THREE.MeshBasicMaterial({ color: R0_BACK_FLOOR_COLOR, side: THREE.DoubleSide });
 	CHUNK_IDS.forEach(id => {
 		const pivot = new THREE.Group();
 		content.add(pivot);
@@ -277,25 +280,25 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 			const { y, outlines } = floorOutlines[id];
 			// Outlines follow the scanned floor, so they already leave R0 (open from 3F up through 4F) out
 			pivot.add(createSlab(outlines, y, floorMaterials.get(id)!));
+			if (id === "4f") {
+				const xs = r0Hole.map(([x]) => x);
+				const z0 = Math.min(...r0Hole.map(([, z]) => z)) - R0_BACK_DROP_REACH;
+				const drop = [
+					[Math.min(...xs), z0],
+					[Math.max(...xs), z0],
+					[Math.max(...xs), R0_TOP_ROW_Z],
+					[Math.min(...xs), R0_TOP_ROW_Z]
+				];
+				pivot.add(createSlab([{ outer: drop, holes: [] }], r0FloorSheetY - 0.01, r0BackMaterial));
+			}
 		} else {
 			// R0's own floor, filling the hole the 3F outline leaves: a flat 3F sheet catching every view under the rake
-			// (plain dark behind the top row, and on past R0's back), and the rake sheet along the seating itself
-			const { y, outlines } = floorOutlines["3f"];
-			const hole = outlines[0].holes[0];
-			const xs = hole.map(([x]) => x);
-			const [x0, x1] = [Math.min(...xs), Math.max(...xs)];
-			const z0 = Math.min(...hole.map(([, z]) => z)) - R0_BACK_DROP_REACH;
-			const front = clipAtZ(hole, R0_TOP_ROW_Z, z => z >= R0_TOP_ROW_Z);
-			const back = [
-				[x0, z0],
-				[x1, z0],
-				[x1, R0_TOP_ROW_Z],
-				[x0, R0_TOP_ROW_Z]
-			];
-			const backMaterial = new THREE.MeshBasicMaterial({ color: R0_BACK_FLOOR_COLOR, side: THREE.DoubleSide });
-			pivot.add(createSlab([{ outer: front, holes: [] }], y, floorMaterials.get("3f")!));
-			pivot.add(createSlab([{ outer: back, holes: [] }], y - 0.01, backMaterial));
-			pivot.add(createRakeSlab(hole, floorOutlines["4f"].y, floorMaterials.get("3f")!));
+			// (plain dark behind the top row), and the rake sheet along the seating itself
+			const front = clipAtZ(r0Hole, R0_TOP_ROW_Z, z => z >= R0_TOP_ROW_Z);
+			const back = clipAtZ(r0Hole, R0_TOP_ROW_Z, z => z <= R0_TOP_ROW_Z);
+			pivot.add(createSlab([{ outer: front, holes: [] }], r0FloorSheetY, floorMaterials.get("3f")!));
+			pivot.add(createSlab([{ outer: back, holes: [] }], r0FloorSheetY, r0BackMaterial));
+			pivot.add(createRakeSlab(r0Hole, floorOutlines["4f"].y, floorMaterials.get("3f")!));
 		}
 
 		splat.initialized.then(() => {
@@ -816,6 +819,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 			material.map?.dispose();
 			material.dispose();
 		});
+		r0BackMaterial.dispose();
 		controls.dispose();
 		renderer.dispose();
 	};
