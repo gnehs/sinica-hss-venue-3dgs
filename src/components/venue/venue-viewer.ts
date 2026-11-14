@@ -655,14 +655,15 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		}
 	};
 
-	const zoomToRegion = (region: Region) => {
+	/** Frame a region from above; a room with its own model is walked into, so it is framed close like the halls. */
+	const zoomToRegion = (region: Region, room = false) => {
 		const box = new THREE.Box3();
 		region.picks.forEach(pick => box.expandByObject(pick));
 		const center = box.getCenter(new THREE.Vector3());
 		const size = box.getSize(new THREE.Vector3());
-		const maxDim = Math.max(size.x, size.z, 2.2);
+		const maxDim = Math.max(size.x, size.z, room ? 1 : 2.2);
 		const fov = camera.fov * (Math.PI / 180);
-		const dist = (maxDim / 2 / Math.tan(fov / 2)) * 2.4;
+		const dist = (maxDim / 2 / Math.tan(fov / 2)) * (room ? 1.5 : 2.4);
 		// Keep the current viewing direction so the camera glides instead of swinging around
 		const dir = camera.position.clone().sub(controls.target).setY(0).normalize();
 		const offset = dir.multiplyScalar(dist * 0.62).setY(dist * 0.78);
@@ -718,7 +719,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		applyDim();
 		gsap.to(dimState, { factor: DIM_OPACITY, duration: prefersReducedMotion() ? 0 : 0.6, ease: "power2.out", onUpdate: applyDim, onComplete: applyDim });
 		if (area.region.shape.screen) viewScreen(area, area.region.shape.screen, area.region.shape.view);
-		else zoomToRegion(area.region);
+		else zoomToRegion(area.region, !!(area.model && area.region.shape.room));
 	};
 
 	// ── Picking ────────────────────────────────────────────────────────────
