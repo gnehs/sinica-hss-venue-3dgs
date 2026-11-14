@@ -25,7 +25,6 @@ const seo = {
 const t = {
 	title: "中央研究院人文社會科學館",
 	floors: "樓層",
-	dragHint: "拖曳旋轉・捲動縮放",
 	loading: "載入 3D 場景",
 	visitWebsite: "前往官網"
 };
@@ -118,8 +117,6 @@ const venueFloors = floors.map(floor => ({
 				}
 			</div>
 		</aside>
-
-		<p class="gesture-hint" aria-hidden="true">{t.dragHint}</p>
 
 		<div class="loader" id="viewer-loader" role="status">
 			<span class="mono-label">{t.loading}</span>
@@ -533,18 +530,6 @@ const venueFloors = floors.map(floor => ({
 	}
 
 	/* ── Hints ───────────────────────────────────────────────────── */
-	.gesture-hint {
-		position: absolute;
-		z-index: 2;
-		right: var(--gutter);
-		bottom: var(--gutter);
-		margin: 0;
-		font-size: 0.7rem;
-		letter-spacing: 0.06em;
-		color: var(--ink-faint);
-		pointer-events: none;
-	}
-
 	.loader {
 		position: absolute;
 		z-index: 4;
@@ -633,10 +618,6 @@ const venueFloors = floors.map(floor => ({
 			border-radius: var(--radius) var(--radius) 0 0;
 			border-bottom: 0;
 			padding-bottom: env(safe-area-inset-bottom);
-		}
-
-		.gesture-hint {
-			display: none;
 		}
 
 		.loader {

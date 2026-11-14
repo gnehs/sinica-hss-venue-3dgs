@@ -16,7 +16,7 @@ export type FloorId = (typeof FLOOR_IDS)[number];
 // Vertical range of each slice in scan units; must match the crop the .sog files were cut with.
 // Each slice stops below its ceiling so every floor reads from above. The slab between two floors ships with the
 // upper slice (outside R0), hidden under its floor sheet, so a floor drawn above the one below joins it without a seam.
-// 2F also carries the upper half of the curved entrance glass, which rises through 3F.
+// 2F also carries what rises from it through 3F: the upper half of the curved entrance glass and both stairwells.
 const FLOOR_LEVELS: Record<FloorId, [number, number]> = {
 	"2f": [-1.6, -0.78],
 	"3f": [-0.55, -0.1],
@@ -41,6 +41,35 @@ const R0_CROP_DEPTH = 0.04;
 const R0_TOP_ROW_Z = -2.3;
 const R0_BACK_FLOOR_COLOR = "#504638";
 const r0FloorY = (z: number) => R0_STAGE_Y + Math.max(0, R0_STAGE_EDGE - z) * R0_RAKE;
+// The two stairwells from 2F up to 3F stick out past the scanned floor outlines, which would cut them off
+const STAIRWELLS = [
+	[[-3.15, -2.6], [-2.05, -2.6], [-2.05, -1.7], [-3.15, -1.7]],
+	[[0.2, -3.35], [2.0, -3.35], [2.0, -2.55], [0.2, -2.55]]
+];
+const FOOTPRINT_EXTRA: Partial<Record<FloorId, number[][][]>> = { "2f": STAIRWELLS, "3f": STAIRWELLS };
+// Open to the floor below although inside the outline: 3F over the 2F entrance lobby, between the curved glass and
+// the curved edge of the 3F floor (scan x, z)
+const FLOOR_VOIDS: Partial<Record<FloorId, number[][][]>> = {
+	"3f": [
+		[
+			[-3.7, -2.85],
+			[-3.3, -3.0],
+			[-2.8, -3.12],
+			[-2.0, -3.45],
+			[-1.0, -3.75],
+			[0.0, -3.93],
+			[1.0, -3.95],
+			[1.65, -3.95],
+			[1.65, -2.2],
+			[1.0, -2.2],
+			[0.0, -2.33],
+			[-1.0, -2.42],
+			[-2.0, -2.55],
+			[-3.0, -2.68],
+			[-3.6, -2.72]
+		]
+	]
+};
 type ChunkId = FloorId | typeof R0_CHUNK;
 const CHUNK_IDS: readonly ChunkId[] = [...FLOOR_IDS, R0_CHUNK];
 const MODEL_SCALE = 0.8;
@@ -265,7 +294,8 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 	const hazeModifier = (key: FloorId | typeof R0_CHUNK) => {
 		if (!hazeModifiers.has(key)) {
 			const floors = isFloorId(key) ? [key] : R0_FLOORS;
-			hazeModifiers.set(key, createHazeModifier(floors.flatMap(floor => floorOutlines[floor].outlines)));
+			const outlines = floors.flatMap(floor => [...floorOutlines[floor].outlines, ...(FOOTPRINT_EXTRA[floor] ?? []).map(outer => ({ outer }))]);
+			hazeModifiers.set(key, createHazeModifier(outlines));
 		}
 		return hazeModifiers.get(key)!.modifier;
 	};
@@ -293,8 +323,11 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		splats.set(id, splat);
 		if (isFloorId(id)) {
 			const { y, outlines } = floorOutlines[id];
-			// Outlines follow the scanned floor, so they already leave R0 (open from 3F up through 4F) out
-			pivot.add(createSlab(outlines, y, floorMaterials.get(id)!));
+			// Outlines follow the scanned floor, so they already leave R0 (open from 3F up through 4F) out; voids
+			// the outline spans are cut out too, or the sheet would hang over the floor below like fog
+			const voids = FLOOR_VOIDS[id] ?? [];
+			const withVoids = outlines.map((outline, i) => (i ? outline : { ...outline, holes: [...outline.holes, ...voids] }));
+			pivot.add(createSlab(withVoids, y, floorMaterials.get(id)!));
 		} else {
 			// R0's own floor, filling the hole the 3F outline leaves: a flat 3F sheet catching every view under the rake
 			// (plain dark behind the top row), and the rake sheet along the seating itself
