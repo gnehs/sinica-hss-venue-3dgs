@@ -3,7 +3,8 @@ import gsap from "gsap";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import floorOutlines from "./floor-outlines.json";
-import { createKuwaharaPass } from "./kuwahara-pass";
+import { createHazeModifier } from "./haze-modifier";
+import { createStylizePass } from "./stylize-pass";
 import { createTrees } from "./trees";
 
 // Gaussian-splat scan of the venue, cut into horizontal slices (scan frame: y up), see public/models/venue/
@@ -212,15 +213,13 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 	// The canvas is transparent so the page background shows through.
 	const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, premultipliedAlpha: true });
 	renderer.setClearColor(0x000000, 0);
-	// The painterly pass reads an elliptical neighbourhood per pixel, so keep the buffer modest
-	const pixelRatio = () => Math.min(window.devicePixelRatio, isConstrainedViewport() ? 1 : 1.25);
-	// Brush radius in drawing-buffer pixels; the pass costs ~radius², and phones show the frame small anyway
-	const brushRadius = () => (isConstrainedViewport() ? 3 : 5) * pixelRatio();
+	// Draw at the screen's own density: an upscaled buffer smears the splats' already soft edges further
+	const pixelRatio = () => Math.min(window.devicePixelRatio, isConstrainedViewport() ? 1.5 : 2);
 	renderer.setPixelRatio(pixelRatio());
 	renderer.setSize(rect.width, rect.height, false);
 	scene.add(new SparkRenderer({ renderer }));
-	const kuwahara = createKuwaharaPass(renderer);
-	kuwahara.setSize(renderer.domElement.width, renderer.domElement.height, brushRadius());
+	const stylize = createStylizePass(renderer);
+	stylize.setSize(renderer.domElement.width, renderer.domElement.height, pixelRatio());
 
 	const controls = new OrbitControls(camera, renderer.domElement);
 	controls.enableDamping = true;
@@ -255,6 +254,15 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 			return [id, new THREE.MeshBasicMaterial({ map, side: THREE.DoubleSide })];
 		})
 	);
+	// One haze modifier per footprint: each floor slice, R0 (spanning 3F and 4F), and the rooms inside a floor
+	const hazeModifiers = new Map<FloorId | typeof R0_CHUNK, ReturnType<typeof createHazeModifier>>();
+	const hazeModifier = (key: FloorId | typeof R0_CHUNK) => {
+		if (!hazeModifiers.has(key)) {
+			const floors = isFloorId(key) ? [key] : R0_FLOORS;
+			hazeModifiers.set(key, createHazeModifier(floors.flatMap(floor => floorOutlines[floor].outlines)));
+		}
+		return hazeModifiers.get(key)!.modifier;
+	};
 	const pivots = new Map<ChunkId, THREE.Group>();
 	const splats = new Map<ChunkId, SplatMesh>();
 	let loaded = 0;
@@ -271,7 +279,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		content.add(pivot);
 		pivots.set(id, pivot);
 
-		const splat = new SplatMesh({ url: `${splatBase}/${id}.sog` });
+		const splat = new SplatMesh({ url: `${splatBase}/${id}.sog`, objectModifier: hazeModifier(id) });
 		splat.opacity = 0;
 		// Local to the base slices: digs out the selected room where its own model takes over
 		splat.edits = [holeEdit];
@@ -404,7 +412,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		const cached = roomModels.get(area.model!);
 		if (cached) return cached;
 		const pivot = area.region.pivot;
-		const splat = new SplatMesh({ url: `${splatBase}/rooms/${area.model}.sog` });
+		const splat = new SplatMesh({ url: `${splatBase}/rooms/${area.model}.sog`, objectModifier: hazeModifier(area.floor) });
 		splat.opacity = 0;
 		splat.visible = false;
 		const cutaway = new SplatEdit({ rgbaBlendMode: SplatEditRgbaBlendMode.MULTIPLY, softEdge: 0.03, sdfs: [] });
@@ -740,7 +748,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		camera.aspect = r.width / r.height;
 		renderer.setPixelRatio(pixelRatio());
 		renderer.setSize(r.width, r.height, false);
-		kuwahara.setSize(renderer.domElement.width, renderer.domElement.height, brushRadius());
+		stylize.setSize(renderer.domElement.width, renderer.domElement.height, pixelRatio());
 		updateViewOffset();
 	};
 
@@ -752,7 +760,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		if (tweening()) wake();
 		if (performance.now() < drawUntil) {
 			updateCutaway();
-			kuwahara.render(scene, camera);
+			stylize.render(scene, camera);
 		}
 		animationId = requestAnimationFrame(frame);
 	};
@@ -804,7 +812,8 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 				if (child instanceof THREE.Mesh) child.geometry.dispose();
 			});
 		});
-		kuwahara.dispose();
+		hazeModifiers.forEach(haze => haze.dispose());
+		stylize.dispose();
 		floorMaterials.forEach(material => {
 			material.map?.dispose();
 			material.dispose();
