@@ -6,7 +6,7 @@ import Icon from "@/components/Icon.astro";
 const seo = {
 	title: "中央研究院人文社會科學館 3D 互動地圖｜3DGS 掃描",
 	description: "中央研究院人文社會科學館的互動 3D 地圖，以 3D Gaussian Splatting（3DGS）掃描重建。可依 2F、3F、4F 瀏覽 R0 至 R3 議程廳、S0 與午餐區，並進入房間查看高解析度模型。",
-	imageAlt: "中央研究院人文社會科學館 R0 議程廳的 3DGS 模型，以插畫風格渲染",
+	imageAlt: "中央研究院人文社會科學館 R0 議程廳的 3DGS 模型，以油畫筆觸渲染",
 	jsonLd: {
 		"@type": "WebPage",
 		name: "中央研究院人文社會科學館 3D 互動地圖",
@@ -658,8 +658,15 @@ const venueFloors = floors.map(floor => ({
 	import { createVenueViewer, isFloorId, type AreaDef, type FloorId, type VenueViewer } from "@/components/venue/venue-viewer";
 	import floors from "@/data/venue.json";
 
+	// A place listed on several floors (R0 spans 3F and 4F) gives its area once; the other floors name it by id
+	const shapes = new Map(floors.flatMap(floor => floor.items.flatMap(item => (typeof item.area === "string" ? [] : [[item.id, item.area] as const]))));
 	const AREAS: AreaDef[] = floors.flatMap(floor =>
-		isFloorId(floor.id) ? floor.items.map((item, index) => ({ id: `${floor.id}-${index}`, floor: floor.id as FloorId, area: item.area, model: "room" in item.area ? item.id : undefined })) : []
+		isFloorId(floor.id)
+			? floor.items.map((item, index) => {
+					const area = typeof item.area === "string" ? shapes.get(item.area)! : item.area;
+					return { id: `${floor.id}-${index}`, floor: floor.id as FloorId, area, model: "room" in area ? (typeof item.area === "string" ? item.area : item.id) : undefined };
+				})
+			: []
 	);
 	const INITIAL_FLOOR: FloorId = "3f";
 

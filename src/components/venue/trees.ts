@@ -3,7 +3,7 @@ import treeData from "./trees.json";
 
 /**
  * Low-poly trees around the building, placed from an aerial photo: [x, z, scale] in scan units, dense forest to the
- * north and east, a few on the lawn to the west.
+ * north and east, a few on the lawn to the west. The painterly pass turns the facets into brush strokes.
  */
 const TREES = treeData as [number, number, number][];
 

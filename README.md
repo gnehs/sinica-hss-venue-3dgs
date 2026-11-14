@@ -1,6 +1,6 @@
 # 中央研究院人文社會科學館 · 3DGS 互動地圖
 
-用 3D Gaussian Splatting（3DGS）掃描重建的中央研究院人文社會科學館互動地圖。可以切換樓層、點選議程廳走進房間，畫面以插畫風格呈現。
+用 3D Gaussian Splatting（3DGS）掃描重建的中央研究院人文社會科學館互動地圖。可以切換樓層、點選議程廳走進房間，畫面以油畫筆觸風格呈現。
 
 網站：https://sinica-hss.gnehs.net
 

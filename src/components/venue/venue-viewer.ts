@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import floorOutlines from "./floor-outlines.json";
 import { createHazeModifier } from "./haze-modifier";
-import { createStylizePass } from "./stylize-pass";
+import { createKuwaharaPass } from "./kuwahara-pass";
 import { createTrees } from "./trees";
 
 // Gaussian-splat scan of the venue, cut into horizontal slices (scan frame: y up), see public/models/venue/
@@ -14,7 +14,9 @@ const SPLAT_BASE = () => (isConstrainedViewport() ? `${MODEL_BASE}/lite` : MODEL
 export const FLOOR_IDS = ["2f", "3f", "4f"] as const;
 export type FloorId = (typeof FLOOR_IDS)[number];
 // Vertical range of each slice in scan units; must match the crop the .sog files were cut with.
-// Each slice stops below its ceiling, and the slab between floors is dropped, so every floor reads from above.
+// Each slice stops below its ceiling so every floor reads from above. The slab between two floors ships with the
+// upper slice (outside R0), hidden under its floor sheet, so a floor drawn above the one below joins it without a seam.
+// 2F also carries the upper half of the curved entrance glass, which rises through 3F.
 const FLOOR_LEVELS: Record<FloorId, [number, number]> = {
 	"2f": [-1.6, -0.78],
 	"3f": [-0.55, -0.1],
@@ -24,9 +26,9 @@ const FLOOR_LEVELS: Record<FloorId, [number, number]> = {
 // full-height chunk that shows whenever 3F or 4F does
 const R0_CHUNK = "r0" as const;
 const R0_FLOORS: readonly FloorId[] = ["3f", "4f"];
-// 4F is open to 3F around R0 and wherever its scan has gaps, so 3F stays drawn beneath it: looking down through
-// 4F lands on 3F rather than on the page background
-const FLOOR_BENEATH: Partial<Record<FloorId, FloorId>> = { "4f": "3f" };
+// Floors are open to the ones below (R0's double height, voids, scan gaps), so every floor beneath stays drawn:
+// looking down through a floor lands on the one below rather than on the page background
+const FLOOR_BENEATH: Record<FloorId, readonly FloorId[]> = { "2f": [], "3f": ["2f"], "4f": ["3f", "2f"] };
 // R0's floor: a flat stage at the front, then a rake rising towards the back. Must match the crop,
 // which keeps everything from R0_CROP_DEPTH under this floor upwards.
 const R0_STAGE_Y = -0.35;
@@ -50,6 +52,8 @@ const MODEL_CENTER = new THREE.Vector3(0.5, -0.4, -0.3);
 const ROOM_MARGIN = 0.18;
 // A wall facing the camera is hidden from just inside its inner face outward
 const WALL_INSET = 0.03;
+// Zooming out past this multiple of a room's framing distance leaves the room
+const ROOM_EXIT_ZOOM = 1.6;
 
 /** Grow a convex polygon outward by `d` (each edge moves out along its normal). */
 const offsetPolygon = (polygon: number[][], d: number) => {
@@ -213,13 +217,15 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 	// The canvas is transparent so the page background shows through.
 	const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, premultipliedAlpha: true });
 	renderer.setClearColor(0x000000, 0);
-	// Draw at the screen's own density: an upscaled buffer smears the splats' already soft edges further
-	const pixelRatio = () => Math.min(window.devicePixelRatio, isConstrainedViewport() ? 1.5 : 2);
+	// The painterly pass reads an elliptical neighbourhood per pixel, so keep the buffer modest
+	const pixelRatio = () => Math.min(window.devicePixelRatio, isConstrainedViewport() ? 1 : 1.25);
+	// Brush radius in drawing-buffer pixels; the pass costs ~radius², and phones show the frame small anyway
+	const brushRadius = () => (isConstrainedViewport() ? 3 : 5) * pixelRatio();
 	renderer.setPixelRatio(pixelRatio());
 	renderer.setSize(rect.width, rect.height, false);
 	scene.add(new SparkRenderer({ renderer }));
-	const stylize = createStylizePass(renderer);
-	stylize.setSize(renderer.domElement.width, renderer.domElement.height, pixelRatio());
+	const kuwahara = createKuwaharaPass(renderer);
+	kuwahara.setSize(renderer.domElement.width, renderer.domElement.height, brushRadius());
 
 	const controls = new OrbitControls(camera, renderer.domElement);
 	controls.enableDamping = true;
@@ -511,6 +517,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 	};
 
 	const exitRoom = () => {
+		roomExitDistance = Infinity;
 		if (!activeRoom) return;
 		const { model } = activeRoom;
 		activeRoom = null;
@@ -568,15 +575,16 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		return { x: target.x + (position.x - target.x) * k, y: target.y + (position.y - target.y) * k, z: target.z + (position.z - target.z) * k };
 	};
 
-	const tweenCamera = (position: THREE.Vector3Like, target: THREE.Vector3Like, duration = 1) => {
+	const tweenCamera = (position: THREE.Vector3Like, target: THREE.Vector3Like, duration = 1, onComplete?: () => void) => {
 		gsap.killTweensOf(camera.position);
 		gsap.killTweensOf(controls.target);
 		if (prefersReducedMotion()) {
 			camera.position.set(position.x, position.y, position.z);
 			controls.target.set(target.x, target.y, target.z);
+			onComplete?.();
 			return;
 		}
-		gsap.to(camera.position, { x: position.x, y: position.y, z: position.z, duration, ease: "power3.inOut" });
+		gsap.to(camera.position, { x: position.x, y: position.y, z: position.z, duration, ease: "power3.inOut", onComplete });
 		gsap.to(controls.target, { x: target.x, y: target.y, z: target.z, duration, ease: "power3.inOut" });
 	};
 
@@ -600,7 +608,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		currentFloor = floor;
 		setHover(null);
 		const duration = instant ? 0 : 0.45;
-		FLOOR_IDS.forEach(id => setChunkVisible(id, id === floor || id === FLOOR_BENEATH[floor], duration));
+		FLOOR_IDS.forEach(id => setChunkVisible(id, id === floor || FLOOR_BENEATH[floor].includes(id), duration));
 		setChunkVisible(R0_CHUNK, R0_FLOORS.includes(floor), duration);
 		const [y0, y1] = FLOOR_LEVELS[floor];
 		const targetY = ((y0 + y1) / 2 - MODEL_CENTER.y) * MODEL_SCALE;
@@ -625,7 +633,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		// Keep the current viewing direction so the camera glides instead of swinging around
 		const dir = camera.position.clone().sub(controls.target).setY(0).normalize();
 		const offset = dir.multiplyScalar(dist * 0.62).setY(dist * 0.78);
-		tweenCamera(fitDistance(center, center.clone().add(offset)), center, 0.9);
+		tweenCamera(fitDistance(center, center.clone().add(offset)), center, 0.9, armRoomExit);
 	};
 
 	/**
@@ -649,8 +657,19 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		const centre = new THREE.Vector3(cx, area.floorY(cz) + 0.12, cz);
 		area.region.pivot.localToWorld(centre);
 		area.region.pivot.localToWorld(position);
-		tweenCamera(position, centre, 1.1);
+		tweenCamera(position, centre, 1.1, armRoomExit);
 	};
+
+	// Zooming out well past a room's framing lets go of the room, the same as clicking outside it
+	let roomExitDistance = Infinity;
+	const armRoomExit = () => {
+		if (activeRoom) roomExitDistance = camera.position.distanceTo(controls.target) * ROOM_EXIT_ZOOM;
+	};
+	controls.addEventListener("change", () => {
+		if (!activeRoom || gsap.isTweening(camera.position) || camera.position.distanceTo(controls.target) <= roomExitDistance) return;
+		roomExitDistance = Infinity;
+		options.onAreaClick(null);
+	});
 
 	/** Light up an area, dim everything else, frame it. */
 	const selectArea = (id: string) => {
@@ -748,7 +767,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		camera.aspect = r.width / r.height;
 		renderer.setPixelRatio(pixelRatio());
 		renderer.setSize(r.width, r.height, false);
-		stylize.setSize(renderer.domElement.width, renderer.domElement.height, pixelRatio());
+		kuwahara.setSize(renderer.domElement.width, renderer.domElement.height, brushRadius());
 		updateViewOffset();
 	};
 
@@ -760,7 +779,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 		if (tweening()) wake();
 		if (performance.now() < drawUntil) {
 			updateCutaway();
-			stylize.render(scene, camera);
+			kuwahara.render(scene, camera);
 		}
 		animationId = requestAnimationFrame(frame);
 	};
@@ -813,7 +832,7 @@ export const createVenueViewer = (options: VenueViewerOptions) => {
 			});
 		});
 		hazeModifiers.forEach(haze => haze.dispose());
-		stylize.dispose();
+		kuwahara.dispose();
 		floorMaterials.forEach(material => {
 			material.map?.dispose();
 			material.dispose();
